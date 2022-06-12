@@ -37,10 +37,15 @@ def filter_out_duplicates(data: list):
 
 async def crawl_product_and_content_infos() -> list[tuple[dict[str, Any], dict[str, Any]]]:
     """ 
-    crawl_product_and_content_infos returns a list of (content_info, product_info ) tuples.
-    both product_info and content infos are of type dict[str, Any].
+    Crawl_product_and_content_infos fetches nike's product feed, and does 
+    some amount of preliminary data manipulation to get from nike's nested json 
+    format to relatively simpler python dictionaries.
+
+    returns:
+    a list of (content_info, product_info ) tuples.
     """
-    urls = [URL_TEMPLATE.format(i) for i in range(0, 250, 40)]
+    urls = [URL_TEMPLATE.format(i) for i in range(0, 200, 40)]
+    # urls = [URL_TEMPLATE.format(i) for i in range(0, 200, 40)]
 
     async with aiohttp.ClientSession() as session:
         # request nike sneakers app content (feed).

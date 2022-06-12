@@ -76,6 +76,8 @@ def parse_info(content_info: dict[str, Any], product_info: dict[str, Any]):
     mp = product_info["merchProduct"]
 
     info = {k: mp.get(k) for k in MERCH_KEYS}
+    info["genders"] = json.dumps(info["genders"])
+
     info.update(
         {
             k: parse_nike_time(v)
