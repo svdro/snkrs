@@ -1,12 +1,34 @@
 import json
+from typing import Optional
 from datetime import datetime 
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from utils import flatten
-from models import Product, Launch
+from models import Product, Launch, Info, Availability
 
-def is_available(p: Product, exclusive_access: bool=False):
-    avail = p.availability[-1]
+def has_size(avail: Availability, sizes: list[str]):
+    """ returns True if at least one size in sizes is available """
+    avail_skus = avail.avail_skus
+
+    if not isinstance(avail_skus, str):
+        return False
+
+    avail_skus = json.loads(avail_skus) 
+    levels = [avail_skus.get(size) for size in sizes]
+    if not any([level != "OOS" for level in levels if level is not None]):
+        return False
+
+    return True
+
+def is_available(p: Product, idx: int=-1, sizes: list[str]=[], exclusive_access: bool=False):
+    if len(p.availability) < abs(idx):
+        return False
+
+    avail = p.availability[idx]
+    if sizes and not has_size(avail, sizes):
+        return False
+
     launch_date = get_launch_date(p)
     return all([ 
             avail.status == "ACTIVE", 
@@ -25,7 +47,8 @@ def get_launch_date(p: Product) -> datetime:
     products with publish_type==LAUNCH have start_entry_date.
     products with publish_type==FLOW have commerce_start_date.
 
-    return the relevant date.
+    returns:
+    the relevant date.
     """
     l: Launch = p.launch[-1]
     ts =  l.start_entry_date or l.commerce_start_date
@@ -37,7 +60,8 @@ def get_launch_method(p: Product) -> str:
     products with publish_type==LAUNCH have method==LEO|DAN.
     products with publish_type==FLOW have method==None.
 
-    return either LEO, DAN, or FLOW
+    returns:
+    either "LEO", "DAN", or "FLOW"
     """
     l: Launch = p.launch[-1]
     method = l.method or l.publish_type
@@ -60,20 +84,41 @@ def query_all_available_products(session: Session) -> list[Product]:
 def query_restricted_products(session:Session) -> list[Product]:
     """ restricted is not necessarily the same as exclusive assess """
     products: list[Product] = session.query(Product).all()
-    products = [p for p in products if is_available(p, True)]
+    products = [p for p in products if is_available(p, exclusive_access=True)]
     return products
 
-def query_hidden_products(session: Session):
-  products = query_all_available_products(session)
-  products = filter_hidden_products(products)
-  return products
+def query_hidden_products(session: Session) -> list[Product]:
+    products = query_all_available_products(session)
+    products = filter_hidden_products(products)
+    return products
 
-def query_product_by_product_id(session: Session, product_id: int):
-  product = session.query(Product).filter(Product.id==product_id).first()
-  assert product is not None
+def query_product_by_product_id(session: Session, product_id: int) -> Product:
+    product = session.query(Product).filter(Product.id==product_id).first()
+    assert product is not None
 
-  return product
+    return product
 
+def query_product_by_style_color(session: Session, style_color: str) -> Optional[Product]:
+    product = session \
+            .query(Product) \
+            .join(Info) \
+            .group_by(Info.product_id) \
+            .having(func.max(Info.timestamp)) \
+            .where(Info.style_color==style_color) \
+            .first()
+
+    return product
+
+def query_products_by_style_color(session: Session, style_colors: list[str]) -> list[Product]:
+    product = session \
+            .query(Product) \
+            .join(Info) \
+            .group_by(Info.product_id) \
+            .having(func.max(Info.timestamp)) \
+            .filter(Info.style_color.in_(style_colors)) \
+            .all()
+
+    return product
 
 if __name__ == "__main__":
     from database import get_session
@@ -81,10 +126,12 @@ if __name__ == "__main__":
     # session: Session = get_session()
 
     with get_session() as session:
-        # products = query_all_available_products(session)
-        products: list[Product] = session.query(Product).all()
-        print(len(products))
+
+        skus= ["DH7722-001", "DO7097-100", "DJ9752-010", "DO6274-001", "DH4692-001"]
+        # skus= [ "DO7097-100"]
+        products = query_products_by_style_color(session, skus)
         for p in products:
-            method = get_launch_method(p)
-            date = get_launch_date(p)
-            print(method, date)
+            # avail = is_available(p, sizes = ["5", "6", "10"])
+            avail = is_available(p)
+            print(avail)
+        # print(products)

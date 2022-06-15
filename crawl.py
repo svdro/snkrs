@@ -44,7 +44,7 @@ async def crawl_product_and_content_infos() -> list[tuple[dict[str, Any], dict[s
     returns:
     a list of (content_info, product_info ) tuples.
     """
-    urls = [URL_TEMPLATE.format(i) for i in range(0, 200, 40)]
+    urls = [URL_TEMPLATE.format(i) for i in range(0, 400, 40)]
     # urls = [URL_TEMPLATE.format(i) for i in range(0, 200, 40)]
 
     async with aiohttp.ClientSession() as session:

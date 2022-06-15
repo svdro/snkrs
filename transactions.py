@@ -4,7 +4,7 @@ from sqlalchemy import func
 
 from models import Product, Info, Launch, Availability
 
-def update_db(session: Session, product_dict: dict[str, Any]) -> dict[str, bool]:
+def update_db(session: Session, product_dict: dict[str, Any]) -> dict[str, int]:
     """ 
     update_db compares a product update's pid with existing Product entries in 
     the database. If there is no existing matching product, a new Product is added 
@@ -12,9 +12,11 @@ def update_db(session: Session, product_dict: dict[str, Any]) -> dict[str, bool]
     changed, a new entry will be added/appended to the corresponding table.
 
     returns:
-    a dict that indicates which updates have been performed.
+    a dict that indicates which product_ids (Product.id) have been updated.
+    e.g: {"launch": 123, "availability": 123}
     """
-    changes = {"add": False, "info": False, "launch": False, "availability": False}
+    # changes = {"add": [], "info": [], "launch": [], "availability": []}
+    changes = {}
 
     p_new = Product.from_dict(product_dict)
     p_old = session.query(Product).filter_by(pid=product_dict["pid"]).first()
@@ -22,7 +24,7 @@ def update_db(session: Session, product_dict: dict[str, Any]) -> dict[str, bool]
     if p_old is None:
         session.add(p_new)
         session.commit()
-        changes["add"] = True
+        changes["add"] = p_new.id
         return changes
 
     if all(
@@ -37,30 +39,30 @@ def update_db(session: Session, product_dict: dict[str, Any]) -> dict[str, bool]
     if p_old.info[-1] != p_new.info[-1]:
         info = Info.from_dict(product_dict)
         p_old.info.append(info)
-        changes["info"] = True
+        changes["info"] = p_old.id
 
     if p_old.launch[-1] != p_new.launch[-1]:
         launch = Launch.from_dict(product_dict)
         p_old.launch.append(launch)
-        changes["launch"] = True
+        changes["launch"] = p_old.id
 
     if p_old.availability[-1] != p_new.availability[-1]:
         availability = Availability.from_dict(product_dict)
         p_old.availability.append(availability)
-        changes["availability"] = True
+        changes["availability"] = p_old.id
 
     session.commit()
     return changes
 
 
-def handle_discontinued_products(session: Session, pids: list[int]) -> int:
+def handle_discontinued_products(session: Session, pids: list[int]) -> list[int]:
     """
     Sometimes products disappear from feed.
     Find out if and which products Nike took out of their content updates,
     and update their availability accordingly.
 
     returns:
-    the number of products missing from the most recent update.
+    a list of product_ids of discontinued products.
     """
 
     # find all products joined with their last available availability status.
@@ -79,10 +81,12 @@ def handle_discontinued_products(session: Session, pids: list[int]) -> int:
     pids_left_over = pids_old - insec
 
     # update Product/Availability tables for discontinued product_ids.
+    discontinued_product_ids = []
     for pid in pids_left_over:
         p_old = session.query(Product).filter_by(pid=pid).first()
         assert(p_old is not None) # to make LSP happy
         p_old.availability.append(Availability.from_scratch())
+        discontinued_product_ids.append(p_old.id)
     session.commit()
 
-    return len(pids_left_over)
+    return discontinued_product_ids

@@ -7,17 +7,25 @@ from telegram import Update
 from telegram.ext import filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
 
 from utils import read_token
+from watchlist import watchlist, should_notify 
 from queries import  get_launch_date, get_launch_method
 from models import Product
 from database import get_session
 from queries import query_all_available_products, query_hidden_products, query_product_by_product_id
 from queries import query_restricted_products, get_last_change_date
 
-token = read_token()
+token, admin_chat_id = read_token()
 print("GOT TOKEN")
 
+class Subscription:
+    def __init__(self):
+        self.queue = asyncio.Queue()
+        self.watchlist = watchlist
+
 # subscriptions is a dict[chat_id: ping_queue]
-subscriptions: dict[int, asyncio.Queue] = {}
+# subscriptions: dict[int, asyncio.Queue] = {}
+subscriptions: dict[int, Subscription] = {}
+# subscriptions: dict[int, dict[str, Any]] = {}
 
 keyboard = [
     ["/subscribe", "/unsubscribe"], 
@@ -39,10 +47,27 @@ def format_products_message(products: list[Product]) -> str:
         html += f'\n<b>{title}</b> /pid_{p.id}'
     return html
 
+async def dispatch_to_admin(text: str):
+    """ genereric function to dispatch a message to the admin """
+    bot = application.bot
+    await bot.send_message(chat_id = admin_chat_id, text=text) 
+
 async def dispatch_notifications(text: str):
     """ genereric function to dispatch notifications to all subscribed chats."""
     bot = application.bot
     await asyncio.gather(*[bot.send_message(chat_id = chat_id, text=text) for chat_id in subscriptions])
+
+async def dispatch_alarm(all_changes: dict[str, list[int]]):
+    bot = application.bot
+
+    notifications = []
+    for chat_id, _ in subscriptions.items():
+        with get_session() as session:
+            products = should_notify(session, all_changes)
+            notifications += ["NOW AVAILABLE!\n" + format_product_message(p) for p in products]
+
+        for text in notifications:
+            await bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.constants.ParseMode.HTML)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = telegram.ReplyKeyboardMarkup(keyboard)
@@ -54,12 +79,12 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "You are already subscribed!"
     if chat_id not in subscriptions:
         text = "You are now subscribed!"
-        subscriptions[chat_id] = asyncio.Queue()
+        subscriptions[chat_id] = Subscription()
+        # subscriptions[chat_id] = asyncio.Queue()
 
     await context.bot.send_message(chat_id=chat_id, text=text)
 
 async def unsubscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = get_chat_id(update)
     chat_id = get_chat_id(update)
 
     if chat_id in subscriptions:
@@ -132,20 +157,20 @@ async def ping_loop(update: Update, context: ContextTypes.DEFAULT_TYPE ):
     sent to the caller.
     """
     chat_id = get_chat_id(update)
-    queue = subscriptions.get(chat_id)
-    if queue is None:
+    sub = subscriptions.get(chat_id)
+    if sub is None:
         await context.bot.send_message(chat_id=chat_id, text="you need to be subscribed to ping")
         return
 
     # assert isinstance(queue, asyncio.Queue)
     async def wait_for_pong():
         try:
-            await asyncio.wait_for(queue.join(), 30)
+            await asyncio.wait_for(sub.queue.join(), 30)
             await context.bot.send_message(chat_id=chat_id, text="pong")
         except Exception as e:
             print("timed out waiting for queue to join!\n", e)
 
-    await queue.put("ping")
+    await sub.queue.put("ping")
     asyncio.ensure_future(wait_for_pong())
 
 
