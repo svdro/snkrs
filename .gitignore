@@ -1,4 +1,6 @@
-__pycache__
-.env
+scripts
 snkrs.db
 .credentials.json
+.env
+.DS_Store
+__pycache__

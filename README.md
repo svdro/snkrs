@@ -1,8 +1,14 @@
 # snkrs
 
-A nike snkrs app monitor that checks for restocks.
+Nike snkrs app monitor that uses telegram for notifications.
 
 ## TODO
- * [ ] Telegram notifications
- * [ ] SQLite database
+ * [ ] CLI
+ * [ ] extend functionality.
+   * [ ] implement more queries.
+   * [ ] implement interface for managing watchlists via whatsapp.
+ * [ ] rewrite application logic.
+   * [ ] rewrite main loop.
+   * [ ] rewrite Alarm
+   * [ ] maybe rewrite telegram application as a class.
  * [ ] Monitor

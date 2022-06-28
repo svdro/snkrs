@@ -22,10 +22,7 @@ class Subscription:
         self.queue = asyncio.Queue()
         self.watchlist = watchlist
 
-# subscriptions is a dict[chat_id: ping_queue]
-# subscriptions: dict[int, asyncio.Queue] = {}
 subscriptions: dict[int, Subscription] = {}
-# subscriptions: dict[int, dict[str, Any]] = {}
 
 keyboard = [
     ["/subscribe", "/unsubscribe"], 
@@ -47,23 +44,43 @@ def format_products_message(products: list[Product]) -> str:
         html += f'\n<b>{title}</b> /pid_{p.id}'
     return html
 
+def format_product_message(p: Product) -> str:
+    html = f"<b>{p.info[-1].title}</b>"
+    html += f"\n(<i>{p.info[-1].style_color}</i>)"
+    html += f"\n{get_launch_method(p)}: {get_launch_date(p)}"
+    html += f"\nlast change: {get_last_change_date(p)}"
+    html += f'\n<a href="{p.info[-1].im_url}">url</a>'
+    html += "\n"
+
+
+    html += f"\navailable: {p.availability[-1].available}"
+    html += f"\nstatus: {p.availability[-1].status}"
+
+    html += f'\nskus:'
+
+    skus = json.loads(p.availability[-1].avail_skus)
+    for k, v in skus.items():
+        html += f"\n\t\t{k}: {v}"
+
+    return html
+
 async def dispatch_to_admin(text: str):
     """ genereric function to dispatch a message to the admin """
     bot = application.bot
     await bot.send_message(chat_id = admin_chat_id, text=text) 
 
-async def dispatch_notifications(text: str):
-    """ genereric function to dispatch notifications to all subscribed chats."""
-    bot = application.bot
-    await asyncio.gather(*[bot.send_message(chat_id = chat_id, text=text) for chat_id in subscriptions])
+# async def dispatch_notifications(text: str):
+    # """ genereric function to dispatch notifications to all subscribed chats."""
+    # bot = application.bot
+    # await asyncio.gather(*[bot.send_message(chat_id = chat_id, text=text) for chat_id in subscriptions])
 
 async def dispatch_alarm(all_changes: dict[str, list[int]]):
     bot = application.bot
 
     notifications = []
-    for chat_id, _ in subscriptions.items():
+    for chat_id, sub in subscriptions.items():
         with get_session() as session:
-            products = should_notify(session, all_changes)
+            products = should_notify(session, sub.watchlist, all_changes)
             notifications += ["NOW AVAILABLE!\n" + format_product_message(p) for p in products]
 
         for text in notifications:
@@ -112,25 +129,6 @@ async def restricted(update: Update, context: ContextTypes.DEFAULT_TYPE):
         html = "exclusive access: " + format_products_message(products)
     await context.bot.send_message(chat_id=get_chat_id(update), text=html, parse_mode=telegram.constants.ParseMode.HTML, disable_web_page_preview=True)
 
-def format_product_message(p: Product) -> str:
-    html = f"<b>{p.info[-1].title}</b>"
-    html += f"\n(<i>{p.info[-1].style_color}</i>)"
-    html += f"\n{get_launch_method(p)}: {get_launch_date(p)}"
-    html += f"\nlast change: {get_last_change_date(p)}"
-    html += f'\n<a href="{p.info[-1].im_url}">url</a>'
-    html += "\n"
-
-
-    html += f"\navailable: {p.availability[-1].available}"
-    html += f"\nstatus: {p.availability[-1].status}"
-
-    html += f'\nskus:'
-
-    skus = json.loads(p.availability[-1].avail_skus)
-    for k, v in skus.items():
-        html += f"\n\t\t{k}: {v}"
-
-    return html
 
 async def send_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = get_chat_id(update)
