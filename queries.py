@@ -24,7 +24,7 @@ def has_size(avail: Availability, sizes: list[str]):
 
 
 def is_available(
-    p: Product, idx: int = -1, sizes: list[str] = [], exclusive_access: bool = False
+    p: Product, idx: int = -1, sizes: list[str] = [], restricted: bool = False
 ):
     if len(p.availability) < abs(idx):
         return False
@@ -38,7 +38,7 @@ def is_available(
         [
             avail.status == "ACTIVE",
             avail.available,
-            avail.restricted if exclusive_access else not avail.restricted,
+            avail.restricted if restricted else not avail.restricted,
             avail.included_in_last_update,
             launch_date <= datetime.now(),
         ]
@@ -95,14 +95,14 @@ def filter_hidden_products(products: list[Product]) -> list[Product]:
 def query_all_available_products(session: Session) -> list[Product]:
     products: list[Product] = session.query(Product).all()
     products = [p for p in products if p.info[-1].product_type == "FOOTWEAR"]
-    products = [p for p in products if is_available(p, exclusive_access=False)]
+    products = [p for p in products if is_available(p, restricted=False)]
     return products
 
 
 def query_restricted_products(session: Session) -> list[Product]:
     """restricted is not necessarily the same as exclusive assess"""
     products: list[Product] = session.query(Product).all()
-    products = [p for p in products if is_available(p, exclusive_access=True)]
+    products = [p for p in products if is_available(p, restricted=True)]
     return products
 
 
@@ -151,16 +151,21 @@ def query_products_by_style_color(
 
 if __name__ == "__main__":
     from database import get_session
+    from watchlist import should_notify
+    from utils import read_json
 
-    # session: Session = get_session()
+    watchlist = read_json("watchlist.json")
+
+    sku = "DM0807-400"
+    all_changes = {"add": [], "launch": [], "discontinued": [], "availability": [13]}
 
     with get_session() as session:
+        notify = should_notify(session, watchlist, all_changes)
+        print("notification list: ", notify)
 
-        skus = ["DH7722-001", "DO7097-100", "DJ9752-010", "DO6274-001", "DH4692-001"]
-        # skus= [ "DO7097-100"]
-        products = query_products_by_style_color(session, skus)
-        for p in products:
-            # avail = is_available(p, sizes = ["5", "6", "10"])
-            avail = is_available(p)
-            print(avail)
-        # print(products)
+        # p = query_product_by_product_id(session, 13)
+        # avail = is_available(p, idx=-6, sizes=[])
+        # name = p.info[-1].title
+        # url = p.info[-1].im_url
+        # print(name, avail, url, p.info[-1].style_color)
+        # # print(products)

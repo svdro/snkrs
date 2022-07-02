@@ -4,45 +4,52 @@ import telegram
 import telegram.constants
 
 from telegram import Update
-from telegram.ext import filters, ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler
+from telegram.ext import filters, ApplicationBuilder, ContextTypes
+from telegram.ext import CommandHandler, MessageHandler
 
-from utils import read_token
-from watchlist import watchlist, should_notify 
-from queries import  get_launch_date, get_launch_method
+from utils import read_token, read_json
+from watchlist import should_notify
+from queries import get_launch_date, get_launch_method
 from models import Product
 from database import get_session
-from queries import query_all_available_products, query_hidden_products, query_product_by_product_id
+from queries import query_all_available_products, query_hidden_products
 from queries import query_restricted_products, get_last_change_date
+from queries import query_product_by_product_id
 
 token, admin_chat_id = read_token()
 print("GOT TOKEN")
 
+
 class Subscription:
     def __init__(self):
         self.queue = asyncio.Queue()
-        self.watchlist = watchlist
+        self.watchlist = read_json("watchlist.json")
+
 
 subscriptions: dict[int, Subscription] = {}
 
 keyboard = [
-    ["/subscribe", "/unsubscribe"], 
-    ["/available", "/hidden" ], 
-    ["/exclusive_access", "/ping"]
+    ["/subscribe", "/unsubscribe"],
+    ["/available", "/hidden"],
+    ["/exclusive_access", "/ping"],
 ]
 
 application = ApplicationBuilder().token(token).build()
 
+
 def get_chat_id(update: Update) -> int:
-    """ utility to avoid lsp complaining """
+    """utility to avoid lsp complaining"""
     assert update.effective_chat is not None
     return update.effective_chat.id
+
 
 def format_products_message(products: list[Product]) -> str:
     html = ""
     for p in products:
         title = p.info[-1].title
-        html += f'\n<b>{title}</b> /pid_{p.id}'
+        html += f"\n<b>{title}</b> /pid_{p.id}"
     return html
+
 
 def format_product_message(p: Product) -> str:
     html = f"<b>{p.info[-1].title}</b>"
@@ -52,11 +59,10 @@ def format_product_message(p: Product) -> str:
     html += f'\n<a href="{p.info[-1].im_url}">url</a>'
     html += "\n"
 
-
     html += f"\navailable: {p.availability[-1].available}"
     html += f"\nstatus: {p.availability[-1].status}"
 
-    html += f'\nskus:'
+    html += f"\nskus:"
 
     skus = json.loads(p.availability[-1].avail_skus)
     for k, v in skus.items():
@@ -64,15 +70,18 @@ def format_product_message(p: Product) -> str:
 
     return html
 
+
 async def dispatch_to_admin(text: str):
-    """ genereric function to dispatch a message to the admin """
+    """genereric function to dispatch a message to the admin"""
     bot = application.bot
-    await bot.send_message(chat_id = admin_chat_id, text=text) 
+    await bot.send_message(chat_id=admin_chat_id, text=text)
+
 
 # async def dispatch_notifications(text: str):
-    # """ genereric function to dispatch notifications to all subscribed chats."""
-    # bot = application.bot
-    # await asyncio.gather(*[bot.send_message(chat_id = chat_id, text=text) for chat_id in subscriptions])
+# """ genereric function to dispatch notifications to all subscribed chats."""
+# bot = application.bot
+# await asyncio.gather(*[bot.send_message(chat_id = chat_id, text=text) for chat_id in subscriptions])
+
 
 async def dispatch_alarm(all_changes: dict[str, list[int]]):
     bot = application.bot
@@ -81,14 +90,22 @@ async def dispatch_alarm(all_changes: dict[str, list[int]]):
     for chat_id, sub in subscriptions.items():
         with get_session() as session:
             products = should_notify(session, sub.watchlist, all_changes)
-            notifications += ["NOW AVAILABLE!\n" + format_product_message(p) for p in products]
+            notifications += [
+                "NOW AVAILABLE!\n" + format_product_message(p) for p in products
+            ]
 
         for text in notifications:
-            await bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.constants.ParseMode.HTML)
+            await bot.send_message(
+                chat_id=chat_id, text=text, parse_mode=telegram.constants.ParseMode.HTML
+            )
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = telegram.ReplyKeyboardMarkup(keyboard)
-    await context.bot.send_message( chat_id=get_chat_id(update), text="HI", reply_markup=reply_markup)
+    await context.bot.send_message(
+        chat_id=get_chat_id(update), text="HI", reply_markup=reply_markup
+    )
+
 
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = get_chat_id(update)
@@ -101,6 +118,7 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(chat_id=chat_id, text=text)
 
+
 async def unsubscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = get_chat_id(update)
 
@@ -110,57 +128,82 @@ async def unsubscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "you are unsubscribed"
     await context.bot.send_message(chat_id=chat_id, text=text)
 
+
 async def available(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with get_session() as session:
         products = query_all_available_products(session)
-        html = "available:" +  format_products_message(products)
+        html = "available:" + format_products_message(products)
         html += f"\ntotal available: {len(products)}"
-    await context.bot.send_message(chat_id=get_chat_id(update), text=html, parse_mode=telegram.constants.ParseMode.HTML, disable_web_page_preview=True)
+    await context.bot.send_message(
+        chat_id=get_chat_id(update),
+        text=html,
+        parse_mode=telegram.constants.ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+
 
 async def hidden(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with get_session() as session:
         products = query_hidden_products(session)
         html = "hidden_products: " + format_products_message(products)
-    await context.bot.send_message(chat_id=get_chat_id(update), text=html, parse_mode=telegram.constants.ParseMode.HTML, disable_web_page_preview=True)
+    await context.bot.send_message(
+        chat_id=get_chat_id(update),
+        text=html,
+        parse_mode=telegram.constants.ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+
 
 async def restricted(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with get_session() as session:
         products = query_restricted_products(session)
         html = "exclusive access: " + format_products_message(products)
-    await context.bot.send_message(chat_id=get_chat_id(update), text=html, parse_mode=telegram.constants.ParseMode.HTML, disable_web_page_preview=True)
+    await context.bot.send_message(
+        chat_id=get_chat_id(update),
+        text=html,
+        parse_mode=telegram.constants.ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
 
 
 async def send_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = get_chat_id(update)
 
     if "/pid_" not in update.message.text:
-        await context.bot.send_message(chat_id=chat_id, text=f'message "{update.message.text}" not supported')
+        await context.bot.send_message(
+            chat_id=chat_id, text=f'message "{update.message.text}" not supported'
+        )
         return
 
     pid = update.message.text.replace("/pid_", "")
     if not pid.isnumeric():
-        await context.bot.send_message(chat_id=chat_id, text="you must specify a product_id")
+        await context.bot.send_message(
+            chat_id=chat_id, text="you must specify a product_id"
+        )
         return
 
     with get_session() as session:
         p = query_product_by_product_id(session, int(pid))
         html = format_product_message(p)
-    await context.bot.send_message(chat_id=chat_id, text=html, parse_mode=telegram.constants.ParseMode.HTML)
+    await context.bot.send_message(
+        chat_id=chat_id, text=html, parse_mode=telegram.constants.ParseMode.HTML
+    )
 
 
-async def ping_loop(update: Update, context: ContextTypes.DEFAULT_TYPE ):
-    """ 
-    ping loop sends a message to the loop coroutine. As soon as the message 
-    has been read, queue.join() will stop blocking and a "pong" message is 
+async def ping_loop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    ping loop sends a message to the loop coroutine. As soon as the message
+    has been read, queue.join() will stop blocking and a "pong" message is
     sent to the caller.
     """
     chat_id = get_chat_id(update)
     sub = subscriptions.get(chat_id)
     if sub is None:
-        await context.bot.send_message(chat_id=chat_id, text="you need to be subscribed to ping")
+        await context.bot.send_message(
+            chat_id=chat_id, text="you need to be subscribed to ping"
+        )
         return
 
-    # assert isinstance(queue, asyncio.Queue)
     async def wait_for_pong():
         try:
             await asyncio.wait_for(sub.queue.join(), 30)
@@ -173,14 +216,14 @@ async def ping_loop(update: Update, context: ContextTypes.DEFAULT_TYPE ):
 
 
 handlers = {
-        "start_handler": CommandHandler("start", start),
-        "subscribe_handler": CommandHandler("subscribe", subscribe),
-        "unsubscribe_handler": CommandHandler("unsubscribe", unsubscribe),
-        "available_handler": CommandHandler("available", available),
-        "hidden_handler": CommandHandler("hidden", hidden),
-        "restricted_handler": CommandHandler("exclusive_access", restricted),
-        "ping_handler": CommandHandler("ping", ping_loop),
-        "view_product_handler": MessageHandler(filters.TEXT, send_product),
+    "start_handler": CommandHandler("start", start),
+    "subscribe_handler": CommandHandler("subscribe", subscribe),
+    "unsubscribe_handler": CommandHandler("unsubscribe", unsubscribe),
+    "available_handler": CommandHandler("available", available),
+    "hidden_handler": CommandHandler("hidden", hidden),
+    "restricted_handler": CommandHandler("exclusive_access", restricted),
+    "ping_handler": CommandHandler("ping", ping_loop),
+    "view_product_handler": MessageHandler(filters.TEXT, send_product),
 }
 
 for handler in handlers.values():
